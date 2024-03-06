@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Bastion EC2 version
+
+Parameters:
+ Project:
+    Description: Project
+    Type: String
+    Default: FRI
+
+  Environment:
+    Description: Environment
+    Type: String
+    Default: lab
+
+  NetworkStackName:
+    Description: Name of parent network CloudFormation stack
+    Type: String
+    Default: basic-network
+
+  OurPublicIp:
+    Description: Our source public IPv4 address
+    Type: String
+    Default: '158.193.138.31/32'
+
+  ImageId:
+    Description: AMI (Amazon Machine Image) ID
+    Type: String
+    # more info: https://docs.amazonaws.cn/en_us/AWSEC2/latest/UserGuide/finding-an-ami.html
+    # list of usable AMIs can be found in AWS console -> EC2 -> AMI Catalog
+    # Amazon Linux 2 (HVM), Kernel 5.10, SSD Volume Type, us-east-1
+    Default: ami-07761f3ae34c4478d
+
+  InstanceType:
+    Description: Instance type (number of vCPUs, memory, bandwidth, etc.)
+    Type: String
+    # "t3" family = General purpose, Intel Xeon Platinum 8000 series; "medium" size = 2 vCPUs, 4 GB memory
+    # more info: https://aws.amazon.com/ec2/instance-types/t3/
+    Default: t3.medium
+
+  IamInstanceProfileName:
+    Description: Instance IAM profile name
+    Type: String
+    # it's unique in each account. can be found in IAM service as AmazonSSMRoleForInstancesQuickSetup (part of Instance profile ARN)
+    # e.g. c76725a1578383l3622172t1w333290784692-SsmRoleInstanceProfile-apue5UBzE6mA
+
+Resources:
+  BastionEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      IamInstanceProfile: !Ref IamInstanceProfileName
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      SubnetId:
+        Fn::ImportValue: !Sub "${NetworkStackName}-PublicSubnetAId"
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+
+            echo 1 > /proc/sys/net/ipv4/ip_forward
+
+            # iptables have to be set manually on instance, since IP of Private Instance will change every deployment
+            # of course it can be done dynamically via AWS CLI :-) but it's out of scope of this lab
+
+            echo "Hello world."
+            echo "This instance was created in environment ${Environment} in region ${AWS::Region}"
+
+          - Environment: !Ref Environment
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: 30
+            Encrypted: true
+
+
+  PrivateInstanceA:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      SubnetId:
+        Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnetAId"
+      SecurityGroupIds:
+        - !Ref SecurityGroupForPrivateInstances
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref SSHKeyPair
+      IamInstanceProfile: !Ref IamInstanceProfileName
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+
+            yum -y update
+            yum -y install httpd
+
+            systemctl enable httpd
+            systemctl start httpd
+
+            echo "Hello world."
+            echo "This instance was created in environment ${Environment} in region ${AWS::Region}"
+
+          - Environment:
+              !Ref Environment
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: 30
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: PrivateInstanceA
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project

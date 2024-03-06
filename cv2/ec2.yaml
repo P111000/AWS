@@ -76,7 +76,6 @@ Resources:
         - { IpProtocol: tcp, FromPort: 80,  ToPort: 80,  CidrIp: 0.0.0.0/0, Description: HTTP - all }
         - { IpProtocol: tcp, FromPort: 22,  ToPort: 22,  CidrIp: { Fn::ImportValue: !Sub '${NetworkStackName}-VpcCidr' }, Description: SSH - VPC }
 
-
   SecurityGroupForPrivateInstances:
     Type: AWS::EC2::SecurityGroup
     Properties:
